@@ -4,6 +4,22 @@ SprayCan is a local Azure / Entra reconnaissance and findings tool.
 
 It uses small scan modules called **droplets** to query Microsoft Graph and Azure Resource Manager, then emits structured findings as JSON. Those findings are reviewed in **Canvas** — a local React web UI included in this repo. Scans can be run from Canvas or from the command line ([Headless Mode](#headless-mode)).
 
+## Responsible Use
+
+SprayCan is a security assessment tool. **Only run it against tenants and subscriptions you own or
+are explicitly authorised to assess.** Unauthorised scanning may break the law and the Microsoft
+terms of service.
+
+- Most scans only read from Microsoft Graph and Azure Resource Manager with the permissions you
+  grant. `Scan: Front Door Origin Exposure` also sends live HTTP requests to the origins it
+  discovers (see [below](#front-door-origin-exposure--live-traffic)).
+- Findings describe a tenant's security weaknesses in detail. Store and share `output/` as
+  confidential data.
+- The software is provided "as is", without warranty. See [LICENSE](LICENSE).
+
+Found a vulnerability in SprayCan itself? See [SECURITY.md](SECURITY.md). Want to add a scan? See
+[CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## What It Does
 
 Current scan coverage:
@@ -142,6 +158,10 @@ Server options (UI and blind modes; ignored in headless mode):
 --port PORT      Port to listen on (default: 8787, or SPRAYCAN_SERVER_PORT)
 --host HOST      Host to bind to (default: 127.0.0.1)
 ```
+
+> **Keep the default `--host 127.0.0.1`.** The Canvas API has no authentication: anyone who can
+> reach the port can start scans with your session and read every finding. For remote use, tunnel
+> instead: `ssh -L 8787:127.0.0.1:8787 <host>`, then open http://127.0.0.1:8787 locally.
 
 ```bash
 SPRAYCAN_SERVER_PORT=8811 python SprayCan.py
