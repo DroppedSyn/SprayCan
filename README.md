@@ -720,6 +720,12 @@ Headless alternative: run `python SprayCan.py --list-scans`, then `python SprayC
   frontend dependencies are gitignored.
 - The pre-built `frontend/dist/` is committed so end users do not need Node.js installed.
 
+## About
+
+SprayCan is built and maintained by Alex Evans. It grew out of Azure and Entra ID assessment work
+at [mnemonic](https://www.mnemonic.io). Thanks to colleagues there for feedback and testing. It is
+not an official mnemonic product.
+
 ## License
 
 SprayCan is licensed under the [Apache License, Version 2.0](LICENSE).
