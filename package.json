@@ -1,0 +1,7 @@
+{
+  "name": "spraycan-workspace",
+  "private": true,
+  "scripts": {
+    "ui:build": "npm --prefix frontend run build"
+  }
+}

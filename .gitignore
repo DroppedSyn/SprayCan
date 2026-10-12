@@ -1,0 +1,21 @@
+frontend/node_modules/
+.idea/
+__pycache__/
+*.pyc
+output/
+content/logs/
+settings.json
+tenant_id_cache.json
+graph_permissions.json
+.venv/
+azure_testing_agentic_evolution.md
+notes.txt
+scratch
+SprayCan_MCP_upgrade_plan.md
+code_review_*.md
+updates_plan.md
+updates_plan_not_fixed.md
+
+# Presentations / templates: never commit
+*.potx
+*.pptx

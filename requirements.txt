@@ -1,0 +1,9 @@
+azure-identity
+cryptography
+fastapi
+InquirerPy
+prompt_toolkit
+PyJWT
+python-multipart
+requests
+uvicorn[standard]
