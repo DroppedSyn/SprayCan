@@ -58,7 +58,7 @@ Non-scan droplets (not runnable headless):
 Unlike the other scans, `Scan: Front Door Origin Exposure` sends live HTTP requests:
 
 - **Always on:** one lightweight, unretried `GET /` per origin, slot, and SCM host, using the
-  User-Agent `mnemonic-origin-audit/1.0`, to confirm config-based verdicts against live reachability.
+  User-Agent `SprayCan/<version> (+https://github.com/DroppedSyn/SprayCan)`, to confirm config-based verdicts against live reachability.
 - **Opt-in payload probe (off by default):** sends an XSS-style test string to each origin *and* its
   public Front Door domain to prove a WAF bypass. Enable it with the checkbox that appears on the
   Scans page when this scan is queued, or set `"front_door_probe_payload": true` in `settings.json`.

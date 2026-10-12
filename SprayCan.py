@@ -28,7 +28,7 @@ except ImportError as e:
     print("")
     sys.exit(1)
 
-VERSION = "0.80"
+from util.version import VERSION
 
 _BOLD = "\033[1m"
 _RESET = "\033[0m"

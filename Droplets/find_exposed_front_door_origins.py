@@ -13,6 +13,7 @@ import util.status as status
 import util.tokenizer as tokenizer
 from Objects.Core import make_finding, make_object, write_findings_to_disk
 from util.paths import PROJECT_ROOT
+from util.version import USER_AGENT
 
 
 class Droplet:
@@ -53,7 +54,7 @@ class Droplet:
     FD_SERVICE_TAG = "azurefrontdoor.backend"
     FDID_HEADER = "x-azure-fdid"
 
-    PROBE_USER_AGENT = "mnemonic-origin-audit/1.0"
+    PROBE_USER_AGENT = USER_AGENT
     PROBE_TIMEOUT_SECONDS = 8
     PROBE_PAYLOAD_PATH = "/?q=%3Cscript%3Ealert(1)%3C%2Fscript%3E"
 
