@@ -699,3 +699,12 @@ Headless alternative: run `python SprayCan.py --list-scans`, then `python SprayC
 - `output/`, `content/logs/`, `settings.json`, `tenant_id_cache.json`, `graph_permissions.json`, `.venv/`, and
   frontend dependencies are gitignored.
 - The pre-built `frontend/dist/` is committed so end users do not need Node.js installed.
+
+## License
+
+SprayCan is licensed under the [Apache License, Version 2.0](LICENSE).
+Copyright 2026 Alex Evans. See [NOTICE](NOTICE).
+
+Unless required by applicable law or agreed to in writing, SprayCan is distributed on an
+"AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND. See the license for the
+specific language governing permissions and limitations.
