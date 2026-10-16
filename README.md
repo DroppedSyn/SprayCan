@@ -240,7 +240,7 @@ or `--all-scans` runs everything.
   [i] Waiting for you to complete sign-in...
   [✓] Signed in.
 
-  ⛫💨  SprayCan v0.81 — headless run
+  ⛫💨  SprayCan v0.82 — headless run
   [i] Tenant: 00000000-0000-0000-0000-000000000000
   [i] Auth mode: device-code
   [i] Queue: 1 scan(s)
