@@ -833,7 +833,11 @@ resources
     def format_rules(self, evidence_rules):
         parts = []
         for rule in evidence_rules or []:
-            target = rule.get("ipAddress") or rule.get("tag") or ""
+            # VNet rules carry the subnet in vnetSubnetResourceId and no ipAddress.
+            subnet_id = rule.get("vnetSubnetResourceId") or ""
+            subnet_parts = subnet_id.rstrip("/").split("/")
+            subnet = "%s/%s" % (subnet_parts[-3], subnet_parts[-1]) if len(subnet_parts) >= 3 else subnet_id
+            target = rule.get("ipAddress") or subnet or rule.get("tag") or ""
             label = "%s %s" % (rule.get("action") or "", target)
             if rule.get("headers"):
                 label += " %s" % json.dumps(rule.get("headers"))
