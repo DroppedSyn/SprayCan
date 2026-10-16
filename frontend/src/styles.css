@@ -1824,31 +1824,122 @@ pre {
 
 .sidebar-tenants {
   flex-shrink: 0;
-  max-height: 30%;
   min-height: 0;
-}
-
-.sidebar-tenants.registering {
-  max-height: 55%;
-}
-
-.sidebar-tenants .frame-body {
-  overflow-y: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(88, 112, 122, 0.35) transparent;
+  position: relative;
+  z-index: 20;
 }
 
 .tenant-selector-body {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
-.tenant-empty-note {
-  margin: 0;
-  font-size: 0.68rem;
+.sidebar-tenants + .scan-launch-btn {
+  margin-top: 10px;
+}
+
+.tenant-picker-label {
+  margin-bottom: 0;
+}
+
+.tenant-picker-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.tenant-picker {
+  flex: 1;
+  min-width: 0;
+}
+
+.tenant-picker-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 140ms ease, background 140ms ease;
+}
+
+.tenant-picker-toggle:hover:not(:disabled),
+.tenant-picker-toggle.open {
+  border-color: var(--accent);
+}
+
+.tenant-picker-toggle:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+:root[data-theme="dark"] .tenant-picker-toggle {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tenant-picker-toggle .tenant-item-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.tenant-picker-placeholder {
+  flex: 1;
+  font-size: 0.72rem;
   color: var(--muted);
-  font-style: italic;
+}
+
+.tenant-picker-chevron {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.tenant-picker-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(60vh, 420px);
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--bg);
+  box-shadow: var(--shadow);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(88, 112, 122, 0.35) transparent;
+}
+
+.tenant-register-btn {
+  flex-shrink: 0;
+  width: 32px;
+  padding: 0;
+  border: 1px dashed var(--line-strong);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 140ms ease, color 140ms ease;
+}
+
+.tenant-register-btn:hover,
+.tenant-register-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .tenant-item {
@@ -2059,23 +2150,6 @@ pre {
 .tenant-register-actions {
   display: flex;
   gap: 6px;
-}
-
-.tenant-add-btn {
-  padding: 6px 8px;
-  border: 1px dashed var(--line);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--muted);
-  font-size: 0.68rem;
-  cursor: pointer;
-  text-align: left;
-  transition: border-color 140ms ease, color 140ms ease;
-}
-
-.tenant-add-btn:hover {
-  border-color: var(--accent);
-  color: var(--accent);
 }
 
 .auth-tenant-display {
