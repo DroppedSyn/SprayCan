@@ -9,6 +9,53 @@ export function pluralize(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
+// Azure puts a rule's address/port scope in either the singular field or the plural
+// list (multiple prefixes, "80,443"-style ports) or ASGs, never more than one. Reading
+// only the singular field renders a scoped rule as "*", i.e. as open to any.
+function resourceNameFromId(id) {
+  return String(id || "").split("/").filter(Boolean).pop() || id;
+}
+
+function ruleScope(single, list, asgIds) {
+  if (single) return single;
+  if (list?.length) return list.join(", ");
+  if (asgIds?.length) return asgIds.map((id) => `ASG:${resourceNameFromId(id)}`).join(", ");
+  return "*";
+}
+
+export function formatRuleSource(rule) {
+  return ruleScope(rule.source_address_prefix, rule.source_address_prefixes, rule.source_application_security_group_ids);
+}
+
+export function formatRuleDestination(rule) {
+  return ruleScope(
+    rule.destination_address_prefix,
+    rule.destination_address_prefixes,
+    rule.destination_application_security_group_ids,
+  );
+}
+
+export function formatRuleSourcePorts(rule) {
+  return ruleScope(rule.source_port_range, rule.source_port_ranges);
+}
+
+export function formatRuleDestinationPorts(rule) {
+  return ruleScope(rule.destination_port_range, rule.destination_port_ranges);
+}
+
+// Generic fact-card rendering: lists of objects (security rules, routes, subnets...)
+// show as their names rather than "[object Object]".
+export function formatFactValue(value) {
+  if (Array.isArray(value)) {
+    if (!value.length) return "[]";
+    if (value.every((item) => item === null || typeof item !== "object")) return value.join(", ");
+    const names = value.map((item) => item?.name || resourceNameFromId(item?.id)).filter(Boolean);
+    return `${value.length} item${value.length === 1 ? "" : "s"}${names.length ? `: ${names.join(", ")}` : ""}`;
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 export function summarizeNetworkSubscriptions(model) {
   return (model?.subscriptions || []).map((subscription) => ({
     id: subscription.id,

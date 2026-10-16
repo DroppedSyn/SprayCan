@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import TopologyGraph from "./TopologyGraph.jsx";
 import ExportCsvButton from "./ExportCsvButton.jsx";
+import {
+  formatFactValue,
+  formatRuleDestination,
+  formatRuleDestinationPorts,
+  formatRuleSource,
+  formatRuleSourcePorts,
+} from "../lib/topology.js";
 
 const NSG_RULE_COLUMNS = [
   { label: "Name", key: "name" },
@@ -8,11 +15,16 @@ const NSG_RULE_COLUMNS = [
   { label: "Direction", key: "direction" },
   { label: "Access", key: "access" },
   { label: "Protocol", key: "protocol" },
-  { label: "Source", key: "source_address_prefix" },
-  { label: "Source Port", key: "source_port_range" },
-  { label: "Destination", key: "destination_address_prefix" },
-  { label: "Destination Port", key: "destination_port_range" },
+  { label: "Source", format: formatRuleSource },
+  { label: "Source Port", format: formatRuleSourcePorts },
+  { label: "Destination", format: formatRuleDestination },
+  { label: "Destination Port", format: formatRuleDestinationPorts },
 ];
+
+function nsgRuleCell(rule, label) {
+  const column = NSG_RULE_COLUMNS.find((col) => col.label === label);
+  return column.format ? column.format(rule) : rule[column.key];
+}
 
 const ROUTE_COLUMNS = [
   { label: "Name", key: "name" },
@@ -310,7 +322,7 @@ export default function TopologyDetailPane({
                             <ExportCsvButton
                               columns={NSG_RULE_COLUMNS.map((col) => col.label)}
                               rows={group.security_rules}
-                              getCell={(row, label) => row[NSG_RULE_COLUMNS.find((col) => col.label === label).key]}
+                              getCell={nsgRuleCell}
                               filename={`${group.name}_security_rules`}
                             />
                             <div className="network-resource-table-head">
@@ -321,18 +333,19 @@ export default function TopologyDetailPane({
                               <span>Protocol</span>
                               <span>Flow</span>
                             </div>
-                            {group.security_rules.map((rule) => (
-                              <div key={rule.id || rule.name} className="network-resource-table-row">
-                                <span>{rule.name || "Unnamed rule"}</span>
-                                <span>{rule.priority || "?"}</span>
-                                <span>{rule.direction || "?"}</span>
-                                <span>{rule.access || "?"}</span>
-                                <span>{rule.protocol || "*"}</span>
-                                <span title={`${rule.source_address_prefix || "*"}:${rule.source_port_range || "*"} -> ${rule.destination_address_prefix || "*"}:${rule.destination_port_range || "*"}`}>
-                                  {(rule.source_address_prefix || "*")}:{rule.source_port_range || "*"}{" -> "}{(rule.destination_address_prefix || "*")}:{rule.destination_port_range || "*"}
-                                </span>
-                              </div>
-                            ))}
+                            {group.security_rules.map((rule) => {
+                              const flow = `${formatRuleSource(rule)}:${formatRuleSourcePorts(rule)} -> ${formatRuleDestination(rule)}:${formatRuleDestinationPorts(rule)}`;
+                              return (
+                                <div key={rule.id || rule.name} className="network-resource-table-row">
+                                  <span>{rule.name || "Unnamed rule"}</span>
+                                  <span>{rule.priority || "?"}</span>
+                                  <span>{rule.direction || "?"}</span>
+                                  <span>{rule.access || "?"}</span>
+                                  <span>{rule.protocol || "*"}</span>
+                                  <span title={flow}>{flow}</span>
+                                </div>
+                              );
+                            })}
                           </div>
                         ) : (
                           <div className="detail-item">
@@ -456,7 +469,7 @@ export default function TopologyDetailPane({
               .map(([key, value]) => (
                 <div key={key} className="fact-card">
                   <span>{key.replace(/_/g, " ")}</span>
-                  <strong>{Array.isArray(value) ? value.join(", ") || "[]" : typeof value === "object" ? JSON.stringify(value) : String(value)}</strong>
+                  <strong>{formatFactValue(value)}</strong>
                 </div>
               ))}
           </div>
