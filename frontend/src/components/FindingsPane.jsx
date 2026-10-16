@@ -1,6 +1,7 @@
 import Frame from "./Frame.jsx";
 
 export default function FindingsPane({
+  activeFile,
   networkModel,
   status,
   filteredFindings,
@@ -27,7 +28,10 @@ export default function FindingsPane({
       scroll
     >
       {status === "loading" ? <div className="empty-state">Loading findings…</div> : null}
-      {status === "ready" && !networkModel && filteredFindings.length === 0 ? (
+      {status === "ready" && !networkModel && !activeFile ? (
+        <div className="empty-state">No scan open. Pick a tenant, then a scan from the sidebar.</div>
+      ) : null}
+      {status === "ready" && !networkModel && activeFile && filteredFindings.length === 0 ? (
         <div className="empty-state">No findings match the current filters.</div>
       ) : null}
       {status === "ready" && networkModel && filteredNetworkInventory.length === 0 ? (

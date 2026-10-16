@@ -144,6 +144,7 @@ export default function App() {
     setFindings([]);
     setActiveFile("");
     setSelectedId("");
+    setLoadedPayload([]);
 
     try {
       const authRes = await fetch(`/api/auth/status?tenantId=${encodeURIComponent(tenantId)}`);
@@ -241,12 +242,8 @@ export default function App() {
         setTenants(tenantsPayload);
         setError("");
 
-        const firstTenant = tenantsPayload[0];
-        if (firstTenant) {
-          await selectTenant(firstTenant.id, normalizedFiles);
-        } else {
-          setStatus("ready");
-        }
+        // Start with nothing open; the user picks a tenant and scan themselves.
+        setStatus("ready");
       } catch (err) {
         setError(err.message);
         setStatus("error");
@@ -475,6 +472,7 @@ export default function App() {
 
             <div className="workspace">
               <FindingsPane
+                activeFile={activeFile}
                 networkModel={networkModel}
                 status={status}
                 filteredFindings={filteredFindings}
