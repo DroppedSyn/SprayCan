@@ -205,6 +205,15 @@ function renderAppTable(columns, rows, filename) {
   );
 }
 
+// An ASG-scoped side has no address prefixes. Scans before the ASG fix classified
+// such a side as "any", so the ASGs take precedence over the recorded scope.
+function formatNsgScope(scope, prefixes, asgIds) {
+  const asgs = (asgIds || []).map((id) => `ASG:${String(id).split("/").filter(Boolean).pop()}`);
+  if (asgs.length && !(prefixes || []).length) return asgs.join(", ");
+  if (scope === "any") return "ANY";
+  return [...(prefixes || []), ...asgs].join(", ") || "ANY";
+}
+
 function renderKeyValueTable(rows) {
   const visibleRows = rows.filter(([, value]) => value != null && value !== "");
   if (!visibleRows.length) {
@@ -390,8 +399,8 @@ function renderEvidence(finding) {
           ["Rule name", item.rule_name || ""],
           ["Priority", item.priority != null ? String(item.priority) : ""],
           ["Protocol", item.protocol || ""],
-          ["Source", item.source_scope === "any" ? "ANY" : (item.source_prefixes || []).join(", ") || "ANY"],
-          ["Destination", item.destination_scope === "any" ? "ANY" : (item.destination_prefixes || []).join(", ") || "ANY"],
+          ["Source", formatNsgScope(item.source_scope, item.source_prefixes, item.source_application_security_groups)],
+          ["Destination", formatNsgScope(item.destination_scope, item.destination_prefixes, item.destination_application_security_groups)],
           ["Ports", item.port_scope === "any" ? "ANY" : (item.destination_ports || []).join(", ") || "ANY"],
           ["Severity", item.classification_severity || ""],
         ])}

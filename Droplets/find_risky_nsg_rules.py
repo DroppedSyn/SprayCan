@@ -121,8 +121,16 @@ class Droplet:
         )
         protocol = str(rule.get("protocol") or "").strip().lower()
 
-        any_source = not source_prefixes or any(self.is_any_prefix(prefix) for prefix in source_prefixes)
-        any_destination = not destination_prefixes or any(self.is_any_prefix(prefix) for prefix in destination_prefixes)
+        # A side scoped to an application security group has no address prefixes;
+        # it is limited to the ASG's members, not open to any address.
+        source_asgs = rule.get("source_application_security_groups") or []
+        destination_asgs = rule.get("destination_application_security_groups") or []
+        any_source = (not source_prefixes and not source_asgs) or any(
+            self.is_any_prefix(prefix) for prefix in source_prefixes
+        )
+        any_destination = (not destination_prefixes and not destination_asgs) or any(
+            self.is_any_prefix(prefix) for prefix in destination_prefixes
+        )
         any_ports = not destination_ports or any(
             self.is_any_port(port) or self.is_broad_port_range(port)
             for port in destination_ports
@@ -148,6 +156,15 @@ class Droplet:
             "protocol_scope": "any" if any_protocol else "specific",
         }
 
+    def format_scope_list(self, prefixes, asg_ids):
+        values = list(prefixes) + [
+            "ASG:%s" % self.get_resource_name_from_id(asg_id) for asg_id in (asg_ids or [])
+        ]
+        text = ", ".join(values[:2])
+        if len(values) > 2:
+            text += "…"
+        return text
+
     def format_rule_summary(self, rule, classification):
         ports = self.normalize_to_list(rule.get("destination_port_range"), rule.get("destination_port_ranges"))
         if classification["port_scope"] == "any":
@@ -160,18 +177,18 @@ class Droplet:
         if classification["source_scope"] == "any":
             src_str = "ANY"
         else:
-            prefixes = self.normalize_to_list(rule.get("source_address_prefix"), rule.get("source_address_prefixes"))
-            src_str = ", ".join(prefixes[:2])
-            if len(prefixes) > 2:
-                src_str += "…"
+            src_str = self.format_scope_list(
+                self.normalize_to_list(rule.get("source_address_prefix"), rule.get("source_address_prefixes")),
+                rule.get("source_application_security_groups"),
+            )
 
         if classification["destination_scope"] == "any":
             dst_str = "ANY"
         else:
-            prefixes = self.normalize_to_list(rule.get("destination_address_prefix"), rule.get("destination_address_prefixes"))
-            dst_str = ", ".join(prefixes[:2])
-            if len(prefixes) > 2:
-                dst_str += "…"
+            dst_str = self.format_scope_list(
+                self.normalize_to_list(rule.get("destination_address_prefix"), rule.get("destination_address_prefixes")),
+                rule.get("destination_application_security_groups"),
+            )
 
         return "%s from %s to %s" % (port_str, src_str, dst_str)
 

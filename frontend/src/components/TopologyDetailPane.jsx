@@ -341,7 +341,7 @@ export default function TopologyDetailPane({
                                   <span>{rule.priority || "?"}</span>
                                   <span>{rule.direction || "?"}</span>
                                   <span>{rule.access || "?"}</span>
-                                  <span>{rule.protocol || "*"}</span>
+                                  <span>{rule.protocol || "?"}</span>
                                   <span title={flow}>{flow}</span>
                                 </div>
                               );

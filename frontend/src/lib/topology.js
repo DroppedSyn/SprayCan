@@ -9,18 +9,23 @@ export function pluralize(count, noun) {
   return `${count} ${noun}${count === 1 ? "" : "s"}`;
 }
 
-// Azure puts a rule's address/port scope in either the singular field or the plural
-// list (multiple prefixes, "80,443"-style ports) or ASGs, never more than one. Reading
-// only the singular field renders a scoped rule as "*", i.e. as open to any.
+// Azure puts a rule's address/port scope in the singular field, the plural list
+// (multiple prefixes, "80,443"-style ports) or ASGs. Reading only the singular field
+// renders a scoped rule as "*", i.e. as open to any. An explicit "any" is always
+// stored as a literal "*", so an empty scope is never shown as "*".
 function resourceNameFromId(id) {
   return String(id || "").split("/").filter(Boolean).pop() || id;
 }
 
 function ruleScope(single, list, asgIds) {
-  if (single) return single;
-  if (list?.length) return list.join(", ");
-  if (asgIds?.length) return asgIds.map((id) => `ASG:${resourceNameFromId(id)}`).join(", ");
-  return "*";
+  const parts = [
+    ...(single ? [single] : []),
+    ...(list || []),
+    ...(asgIds || []).map((id) => `ASG:${resourceNameFromId(id)}`),
+  ];
+  if (parts.length) return parts.join(", ");
+  // Model files written before the plural/ASG fields existed don't carry them.
+  return list === undefined ? "Not recorded (older model file)" : "Not recorded";
 }
 
 export function formatRuleSource(rule) {
