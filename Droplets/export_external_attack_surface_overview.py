@@ -240,19 +240,14 @@ Resources
     )
 ) or (
     properties['publicNetworkAccess'] == 'Enabled'
-    and (
-        (properties !contains 'networkAcls' and properties !contains 'networkRuleSet')
-        or (
-            tostring(properties['networkAcls']['ipRules']) == '[]'
-            and tostring(properties['networkRuleSet']['ipRules']) == '[]'
-        )
-    )
+    and properties !contains 'networkAcls'
+    and properties !contains 'networkRuleSet'
 ) or (
     properties['networkAcls']['defaultAction'] == 'Allow'
-    and tostring(properties['networkAcls']['ipRules']) == '[]'
+    and tostring(properties['publicNetworkAccess']) !~ 'Disabled'
 ) or (
     properties['networkRuleSet']['defaultAction'] == 'Allow'
-    and tostring(properties['networkRuleSet']['ipRules']) == '[]'
+    and tostring(properties['publicNetworkAccess']) !~ 'Disabled'
 )
 | project subscriptionId, id, name, type,
     defaultHostName=tostring(properties['defaultHostName']),
