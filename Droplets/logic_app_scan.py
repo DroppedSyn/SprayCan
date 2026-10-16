@@ -437,7 +437,9 @@ class Droplet:
         trigger access control.
 
         ARM path: properties.accessControl.triggers.allowedCallerIpAddresses
-        (absent when no restriction is configured).
+        (absent when no restriction is configured). An explicitly empty list is
+        the portal's "Only other Logic Apps" setting, which blocks every external
+        caller.
 
         We treat wildcard ranges (0.0.0.0-255.255.255.255, 0.0.0.0/0, *) as
         equivalent to no restriction — they are sometimes written by tooling
@@ -446,9 +448,11 @@ class Droplet:
         properties = workflow.get("properties") or {}
         access_control = properties.get("accessControl") or {}
         trigger_access = access_control.get("triggers") or {}
-        allowed_ips = trigger_access.get("allowedCallerIpAddresses") or []
-        if not allowed_ips:
+        allowed_ips = trigger_access.get("allowedCallerIpAddresses")
+        if allowed_ips is None:
             return False
+        if isinstance(allowed_ips, list) and not allowed_ips:
+            return True
         wildcards = {"0.0.0.0-255.255.255.255", "0.0.0.0/0", "*", "any", ""}
         return not any(
             (ip.get("addressRange") or "").strip().lower() in wildcards
