@@ -42,7 +42,7 @@ Scan droplets (runnable from Canvas or headless):
 
 | # | Droplet name | Needs | What it checks |
 |---|---|---|---|
-| 1 | `Scan: Dangling app-reg URLS` | Graph | App registration redirect URIs / reply URLs whose domains no longer resolve (OAuth code hijack) |
+| 1 | `Scan: Dangling app-reg URLS` | Graph | App registration redirect URIs (web, SPA and public client) on azurewebsites.net hosts that no longer resolve, or that use a wildcard host (OAuth code hijack) |
 | 2 | `Scan: Entra ID State Checks` | Graph | Tenant-wide Entra ID weak defaults: app registration / tenant creation by non-admins, guest roles and invitations, self-service sign-up, cross-tenant B2B defaults |
 | 3 | `Scan: External Resource Review` | ARM | Internet-facing Azure resources across subscriptions; flags public endpoints needing network exposure review |
 | 4 | `Scan: Find Risky NSG Inbound Rules` | ARM | NSG inbound rules allowing any source (0.0.0.0/0 / Internet) to sensitive or broad port ranges, with affected NICs and subnets |

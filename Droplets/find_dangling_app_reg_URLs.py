@@ -52,11 +52,21 @@ class Droplet:
         return self.collect_graph_values("/v1.0/applications")
 
     def get_domain(self, url):
+        # hostname, not netloc: a port or userinfo in the URI would otherwise make the
+        # DNS lookup fail and the URI be reported as dangling.
         parsed = urlparse(url if "://" in url else f"https://{url}")
-        return parsed.netloc or parsed.path.split("/")[0]
+        return (parsed.hostname or parsed.path.split("/")[0]).lower()
+
+    def is_app_service_host(self, redirect_uri):
+        domain = self.get_domain(redirect_uri)
+        return domain == "azurewebsites.net" or domain.endswith(".azurewebsites.net")
+
+    def is_wildcard_redirect_uri(self, redirect_uri):
+        return "*" in self.get_domain(redirect_uri)
 
     def is_dangling_redirect_uri(self, redirect_uri):
-        if "azurewebsites.net" not in redirect_uri:
+        # Wildcard hosts never resolve; they are reported separately, not as dangling.
+        if not self.is_app_service_host(redirect_uri) or self.is_wildcard_redirect_uri(redirect_uri):
             return False
 
         try:
@@ -93,18 +103,56 @@ class Droplet:
             },
         )
 
+    def build_wildcard_finding(self, app, wildcard_uris):
+        return make_finding(
+            title="Wildcard App Service Redirect URI%s" % ("" if len(wildcard_uris) == 1 else "s"),
+            desc=(
+                "One or more application redirect URIs use a wildcard azurewebsites.net host. Anyone can "
+                "create an App Service under azurewebsites.net, so a matching host can be registered to "
+                "receive this application's authorization codes or tokens."
+            ),
+            severity="high",
+            confidence="high",
+            objects=[make_object("application", app.get("id"), app.get("displayName"))],
+            rec="Replace wildcard redirect URIs with the exact hosts the application uses.",
+            evidence=[
+                {
+                    "redirect_uri": uri,
+                    "resolved_domain": self.get_domain(uri),
+                    "resolution_status": "wildcard",
+                }
+                for uri in wildcard_uris
+            ],
+            meta={
+                "scan": self.droplet_name,
+                "app_id": app.get("id"),
+                "app_name": app.get("displayName"),
+            },
+        )
+
+    def get_redirect_uris(self, app):
+        redirect_uris = []
+        for platform in ('web', 'spa', 'publicClient'):
+            redirect_uris.extend((app.get(platform) or {}).get('redirectUris') or [])
+        return redirect_uris
+
     def find_vulnerable_apps(self, apps):
         findings = []
         status.set_phase("Analyzing application redirect URIs")
 
         for app in apps:
-            redirect_uris = []
-            redirect_uris.extend((app.get('web') or {}).get('redirectUris', []))
-            redirect_uris.extend((app.get('publicClient') or {}).get('redirectUris', []))
+            redirect_uris = self.get_redirect_uris(app)
 
             dangling_uris = [uri for uri in redirect_uris if self.is_dangling_redirect_uri(uri)]
             if dangling_uris:
                 findings.append(self.build_finding(app, dangling_uris))
+
+            wildcard_uris = [
+                uri for uri in redirect_uris
+                if self.is_app_service_host(uri) and self.is_wildcard_redirect_uri(uri)
+            ]
+            if wildcard_uris:
+                findings.append(self.build_wildcard_finding(app, wildcard_uris))
 
         return findings
 
