@@ -1,4 +1,5 @@
 import csv
+import ipaddress
 import json
 import os
 import re
@@ -642,7 +643,11 @@ class Droplet:
         return "%s/%s" % (vnet_name, subnet_name)
 
     def get_resource_network_exposure(self, subscription_id, resource_properties):
-        resource_network_exposure = {"whitelisted": [], "ispublic": True}
+        # whitelisted: public-endpoint allowlist entries, which decide the "Selected networks"
+        # label. Private endpoints say nothing about the public endpoint, so they are listed
+        # separately: counting them as allowlist entries made a resource with public access
+        # open to all read as "Selected networks".
+        resource_network_exposure = {"whitelisted": [], "private_endpoints": [], "ispublic": True}
         had_resolution_error = False
 
         if "publicNetworkAccess" in resource_properties:
@@ -729,7 +734,7 @@ class Droplet:
                             private_endpoint_ip_addresses.append(nic_ip_address)
 
             if subnet_label:
-                resource_network_exposure["whitelisted"].append(
+                resource_network_exposure["private_endpoints"].append(
                     "%s (%s)" % (subnet_label, ", ".join(private_endpoint_ip_addresses))
                 )
 
@@ -745,7 +750,7 @@ class Droplet:
         firewall_properties,
         vnet_properties,
     ):
-        db_server_network_exposure = {"whitelisted": [], "ispublic": True}
+        db_server_network_exposure = {"whitelisted": [], "private_endpoints": [], "notes": [], "ispublic": True}
         firewall_rules = firewall_properties.get("value", [])
         vnet_rules = vnet_properties.get("value", [])
         has_public_network_access = True
@@ -766,15 +771,19 @@ class Droplet:
             db_server_network_exposure["ispublic"] = False
 
         if db_server_network_exposure["ispublic"]:
+            firewall_ranges = []
             for firewall_rule in firewall_rules:
                 firewall_rule_properties = firewall_rule.get("properties", {})
                 rule_start_ip = firewall_rule_properties.get("startIpAddress")
                 rule_end_ip = firewall_rule_properties.get("endIpAddress")
 
                 if rule_start_ip == rule_end_ip == "0.0.0.0":
-                    if "Azure backbone" not in db_server_network_exposure["whitelisted"]:
-                        db_server_network_exposure["whitelisted"].append("Azure backbone")
+                    # "Allow Azure services and resources to access this server": admits
+                    # traffic from any Azure-hosted resource, including other customers'.
+                    if self.AZURE_SERVICES_FIREWALL_LABEL not in db_server_network_exposure["whitelisted"]:
+                        db_server_network_exposure["whitelisted"].append(self.AZURE_SERVICES_FIREWALL_LABEL)
                 elif rule_start_ip and rule_end_ip:
+                    firewall_ranges.append((rule_start_ip, rule_end_ip))
                     if rule_start_ip == rule_end_ip:
                         db_server_network_exposure["whitelisted"].append(rule_start_ip)
                     else:
@@ -785,6 +794,13 @@ class Droplet:
                 formatted = self.extract_vnet_subnet_name(vnet_rule_path)
                 if formatted:
                     db_server_network_exposure["whitelisted"].append(formatted)
+
+            if self.firewall_ranges_cover_all_ipv4(firewall_ranges):
+                db_server_network_exposure["label"] = "All networks"
+            elif not db_server_network_exposure["whitelisted"]:
+                # The server firewall denies all public traffic until a rule allows it.
+                db_server_network_exposure["ispublic"] = False
+                db_server_network_exposure["notes"].append(self.NO_FIREWALL_RULES_NOTE)
 
         for private_endpoint_connection in resource_properties.get("privateEndpointConnections", []):
             private_endpoint_path = ((private_endpoint_connection.get("properties") or {}).get("privateEndpoint") or {}).get("id")
@@ -824,7 +840,7 @@ class Droplet:
                             private_endpoint_ip_addresses.append(private_ip_address)
 
             if subnet_label:
-                db_server_network_exposure["whitelisted"].append(
+                db_server_network_exposure["private_endpoints"].append(
                     "%s (%s)" % (subnet_label, ", ".join(private_endpoint_ip_addresses))
                 )
 
@@ -832,6 +848,96 @@ class Droplet:
             db_server_network_exposure["label"] = "Unknown"
 
         return db_server_network_exposure
+
+    AZURE_SERVICES_FIREWALL_LABEL = "Any Azure service (incl. other tenants)"
+    NO_FIREWALL_RULES_NOTE = "Public endpoint has no firewall rules (all public traffic denied)"
+
+    def firewall_ranges_cover_all_ipv4(self, ranges):
+        """True when the start/end IP rules together admit every IPv4 address."""
+        intervals = []
+        for start_ip, end_ip in ranges:
+            try:
+                start = int(ipaddress.IPv4Address(str(start_ip).strip()))
+                end = int(ipaddress.IPv4Address(str(end_ip).strip()))
+            except ValueError:
+                continue
+            if start <= end:
+                intervals.append((start, end))
+        next_uncovered = 0
+        for start, end in sorted(intervals):
+            if start > next_uncovered:
+                return False
+            next_uncovered = max(next_uncovered, end + 1)
+        return next_uncovered > int(ipaddress.IPv4Address("255.255.255.255"))
+
+    def describe_network_exposure(self, network_exposure):
+        return network_exposure.get("label") or (
+            "Selected networks" if network_exposure["whitelisted"]
+            else "All networks" if network_exposure["ispublic"]
+            else "Private"
+        )
+
+    APP_SERVICE_ALLOW_ALL_ADDRESSES = {"any", "0.0.0.0/0", "::/0"}
+
+    def describe_app_service_rule(self, rule):
+        """Readable source of an App Service access restriction rule."""
+        if rule.get("vnetSubnetResourceId"):
+            source = self.extract_vnet_subnet_name(rule["vnetSubnetResourceId"]) or rule["vnetSubnetResourceId"]
+        elif str(rule.get("tag") or "").lower() == "servicetag":
+            source = "Service tag: %s" % (rule.get("ipAddress") or "")
+        else:
+            source = rule.get("ipAddress") or rule.get("name") or "Unnamed rule"
+        headers = rule.get("headers") or {}
+        if headers:
+            source += " [%s]" % ", ".join(
+                "%s: %s" % (name, ", ".join(values or [])) for name, values in sorted(headers.items())
+            )
+        return source
+
+    def app_service_access_to_network_acls(self, rules, default_action):
+        """
+        Map App Service access restrictions onto the networkAcls shape that
+        get_resource_network_exposure understands.
+
+        Rules are evaluated in priority order and the first match wins. Newer API
+        versions return ipSecurityRestrictionsDefaultAction for unmatched traffic.
+        Without it, Azure's legacy behaviour applies: no rules means allow all, and any
+        real allow rule adds an implicit deny. Legacy responses also list the injected
+        "Allow all"/"Deny all" rules (ipAddress "Any") explicitly.
+        """
+        def is_match_all(rule):
+            return (
+                not rule.get("vnetSubnetResourceId")
+                and str(rule.get("tag") or "").lower() != "servicetag"
+                and str(rule.get("ipAddress") or "").strip().lower() in self.APP_SERVICE_ALLOW_ALL_ADDRESSES
+            )
+
+        def priority(rule):
+            try:
+                return int(rule.get("priority"))
+            except (TypeError, ValueError):
+                return 2147483647
+
+        rules = sorted((rule for rule in (rules or []) if isinstance(rule, dict)), key=priority)
+        allowed_sources = []
+        for rule in rules:
+            is_allow = str(rule.get("action") or "").lower() == "allow"
+            if is_match_all(rule):
+                # Everything not matched by a higher-priority rule stops here.
+                if is_allow:
+                    return {"defaultAction": "Allow"}
+                break
+            if is_allow:
+                allowed_sources.append(self.describe_app_service_rule(rule))
+        else:
+            if default_action:
+                unmatched = str(default_action).strip().lower()
+            else:
+                unmatched = "deny" if allowed_sources else "allow"
+            if unmatched == "allow":
+                return {"defaultAction": "Allow"}
+
+        return {"defaultAction": "Deny", "ipRules": [{"value": source} for source in allowed_sources]}
 
     def export_resource_overview_to_csv(self, output_file_path, column_names, resource_overview):
         with open(output_file_path, "w", newline="", encoding="utf-8") as file_handle:
@@ -844,19 +950,20 @@ class Droplet:
                 if "network" in row_payload:
                     network_exposure = row_payload.pop("network")
                     whitelisted_locations = network_exposure["whitelisted"]
-                    network_restriction_name = network_exposure.get("label") or (
-                        "Selected networks" if whitelisted_locations
-                        else "All networks" if network_exposure["ispublic"]
-                        else "Private"
-                    )
+                    network_restriction_name = self.describe_network_exposure(network_exposure)
                     row_values = list(row_payload.values())
                     row_values.insert(0, network_restriction_name)
                     row_values.insert(0, resource_name)
                     writer.writerow(row_values)
 
-                    if whitelisted_locations:
+                    listed_locations = (
+                        list(whitelisted_locations)
+                        + ["Private endpoint: %s" % entry for entry in network_exposure.get("private_endpoints", [])]
+                        + list(network_exposure.get("notes", []))
+                    )
+                    if listed_locations:
                         whitelisted_location_row = [""] * len(row_values)
-                        for whitelisted_location in whitelisted_locations:
+                        for whitelisted_location in listed_locations:
                             whitelisted_location_row[1] = whitelisted_location
                             writer.writerow(whitelisted_location_row)
                 else:
@@ -966,23 +1073,75 @@ class Droplet:
             return port_token == "ANY"
         return any(self.port_value_matches_candidate(port_value, port_token) for port_value in destination_ports)
 
-    def evaluate_nsg_inbound_action(self, nsg_properties, source_token, port_token):
+    # Destination prefixes that always cover a VM's private IP. "Internet" is not one:
+    # as a destination it means public address space.
+    DESTINATION_COVERS_VNET_PREFIXES = {"*", "any", "0.0.0.0/0", "virtualnetwork"}
+
+    def rule_matches_destination(self, rule_properties, destination):
+        """
+        Whether an inbound rule applies to this VM's IP configuration. NSGs evaluate
+        inbound traffic after a public IP is translated to the private IP, so rules
+        are matched against the private IP and the NIC's application security groups.
+        Without a known destination, every rule is assumed to apply.
+        """
+        if not destination:
+            return True
+        destination_asgs = [
+            str(group.get("id") or "").lower()
+            for group in rule_properties.get("destinationApplicationSecurityGroups") or []
+        ]
+        if destination_asgs:
+            return any(asg_id in destination["asg_ids"] for asg_id in destination_asgs)
+        prefixes = self.normalize_to_list(
+            rule_properties.get("destinationAddressPrefix"),
+            rule_properties.get("destinationAddressPrefixes"),
+        )
+        if not prefixes:
+            return True
+        for prefix in prefixes:
+            if str(prefix).strip().lower() in self.DESTINATION_COVERS_VNET_PREFIXES:
+                return True
+            if destination["ip"]:
+                try:
+                    if destination["ip"] in ipaddress.ip_network(str(prefix).strip(), strict=False):
+                        return True
+                except ValueError:
+                    continue  # service tag other than VirtualNetwork, or malformed
+        return False
+
+    def build_rule_destination(self, ip_configuration_properties):
+        try:
+            private_ip = ipaddress.ip_address(str(ip_configuration_properties.get("privateIPAddress") or "").strip())
+        except ValueError:
+            private_ip = None
+        asg_ids = {
+            str(group.get("id") or "").lower()
+            for group in ip_configuration_properties.get("applicationSecurityGroups") or []
+            if group.get("id")
+        }
+        if private_ip is None and not asg_ids:
+            return None
+        return {"ip": private_ip, "asg_ids": asg_ids}
+
+    def evaluate_nsg_inbound_action(self, nsg_properties, source_token, port_token, destination=None):
         for rule in self.get_sorted_inbound_rules(nsg_properties):
             rule_properties = rule.get("properties", {})
             if not self.rule_matches_source_token(rule_properties, source_token):
                 continue
             if not self.rule_matches_port_token(rule_properties, port_token):
                 continue
+            if not self.rule_matches_destination(rule_properties, destination):
+                continue
             return str(rule_properties.get("access") or "Deny").strip().lower()
         return "deny"
 
-    def evaluate_effective_inbound_action(self, nsg_records, source_token, port_token):
+    def evaluate_effective_inbound_action(self, nsg_records, source_token, port_token, destination=None):
         if not nsg_records:
             return "allow"
         for nsg_record in nsg_records:
             if not nsg_record:
                 continue
-            if self.evaluate_nsg_inbound_action(nsg_record["properties"], source_token, port_token) != "allow":
+            if self.evaluate_nsg_inbound_action(nsg_record["properties"], source_token, port_token, destination) != "allow":
                 return "deny"
         return "allow"
 
@@ -1168,6 +1327,7 @@ class Droplet:
                     # as wide open by default. Track that so we report "Unknown"
                     # instead of confidently asserting exposure either way.
                     "incomplete": nic_nsg_lookup_failed,
+                    "destination": self.build_rule_destination(ip_configuration_properties),
                 }
                 if nic_nsg_record:
                     path_context["nsg_records"].append(nic_nsg_record)
@@ -1240,8 +1400,9 @@ class Droplet:
                 continue
             port_candidates = sorted(path_context["port_candidates"], key=self.normalize_port_sort_key)
             nsg_records = path_context["nsg_records"]
+            destination = path_context["destination"]
 
-            if self.evaluate_effective_inbound_action(nsg_records, "ANY", "ANY") == "allow":
+            if self.evaluate_effective_inbound_action(nsg_records, "ANY", "ANY", destination) == "allow":
                 internet_exposed = True
                 if "ANY from ANY" not in context["inbound_summaries"]:
                     context["inbound_summaries"].append("ANY from ANY")
@@ -1250,14 +1411,14 @@ class Droplet:
                 continue
 
             for port_candidate in port_candidates:
-                if self.evaluate_effective_inbound_action(nsg_records, "ANY", port_candidate) == "allow":
+                if self.evaluate_effective_inbound_action(nsg_records, "ANY", port_candidate, destination) == "allow":
                     internet_exposed = True
                     summary = "%s from ANY" % port_candidate
                     if summary not in context["inbound_summaries"]:
                         context["inbound_summaries"].append(summary)
 
             for risky_port, risky_label in self.HIGH_RISK_VM_PORTS.items():
-                if self.evaluate_effective_inbound_action(nsg_records, "ANY", risky_port) == "allow":
+                if self.evaluate_effective_inbound_action(nsg_records, "ANY", risky_port, destination) == "allow":
                     risky_port_label = "%s (%s)" % (risky_port, risky_label)
                     if risky_port_label not in context["risky_ports"]:
                         context["risky_ports"].append(risky_port_label)
@@ -1266,7 +1427,7 @@ class Droplet:
                 continue
 
             for source_candidate in sorted(path_context["source_candidates"]):
-                if self.evaluate_effective_inbound_action(nsg_records, source_candidate, "ANY") == "allow":
+                if self.evaluate_effective_inbound_action(nsg_records, source_candidate, "ANY", destination) == "allow":
                     effective_specific_sources.add(source_candidate)
                     summary = "ANY from %s" % source_candidate
                     if summary not in context["inbound_summaries"]:
@@ -1274,7 +1435,7 @@ class Droplet:
                     continue
 
                 for port_candidate in port_candidates:
-                    if self.evaluate_effective_inbound_action(nsg_records, source_candidate, port_candidate) == "allow":
+                    if self.evaluate_effective_inbound_action(nsg_records, source_candidate, port_candidate, destination) == "allow":
                         effective_specific_sources.add(source_candidate)
                         summary = "%s from %s" % (port_candidate, source_candidate)
                         if summary not in context["inbound_summaries"]:
@@ -1374,28 +1535,26 @@ class Droplet:
                         continue
 
                     config_properties = config_content.get("properties", {})
-                    network_acls = {"defaultAction": "Allow"}
-                    app_service_vnet_path = app_service_properties.get("virtualNetworkSubnetId")
-                    network_acls["virtualNetworkRules"] = [{"id": app_service_vnet_path}] if app_service_vnet_path else []
-
-                    ip_restrictions = config_properties.get("ipSecurityRestrictions", [])
-                    is_network_restricted = any(
-                        str(ip_restriction.get("action", "")).lower() == "deny"
-                        and str(ip_restriction.get("ipAddress", "")).lower() == "any"
-                        for ip_restriction in ip_restrictions
-                    )
-                    if is_network_restricted:
-                        network_acls["defaultAction"] = "Deny"
-                        network_acls["ipRules"] = [
-                            {"value": ip_restriction.get("ipAddress")}
-                            for ip_restriction in ip_restrictions
-                            if str(ip_restriction.get("action", "")).lower() != "deny"
-                        ]
-                    else:
-                        network_acls["ipRules"] = []
-
+                    # virtualNetworkSubnetId is outbound VNet integration, not an inbound
+                    # source, so it plays no part in who can reach the app.
                     app_service_properties = dict(app_service_properties)
-                    app_service_properties["networkAcls"] = network_acls
+                    app_service_properties["networkAcls"] = self.app_service_access_to_network_acls(
+                        config_properties.get("ipSecurityRestrictions"),
+                        config_properties.get("ipSecurityRestrictionsDefaultAction"),
+                    )
+                    if config_properties.get("scmIpSecurityRestrictionsUseMain"):
+                        scm_access = "Same as main site"
+                    else:
+                        scm_access = self.describe_network_exposure(self.get_network_exposure(
+                            subscription,
+                            dict(app_service_properties, networkAcls=self.app_service_access_to_network_acls(
+                                config_properties.get("scmIpSecurityRestrictions"),
+                                config_properties.get("scmIpSecurityRestrictionsDefaultAction"),
+                            ), privateEndpointConnections=[]),
+                            resource_path,
+                            "App Service",
+                            had_errors,
+                        ))
                     network_exposure = self.get_network_exposure(
                         subscription,
                         app_service_properties,
@@ -1419,13 +1578,14 @@ class Droplet:
                         ),
                         "httpsonly": "Yes" if app_service_properties.get("httpsOnly") else "No",
                         "tlsversion": self.format_tls_version(config_properties.get("minTlsVersion")),
+                        "scmaccess": scm_access,
                     }
                 except Exception as exc:
                     self.handle_resource_processing_error("App Service", resource_path, had_errors, exc)
 
         self.write_csv_and_report(
             "get_appservice_overview",
-            ["Name", "Allow access from", "Type", "FTP State", "HTTPS only", "Minimum TLS version"],
+            ["Name", "Allow access from", "Type", "FTP State", "HTTPS only", "Minimum TLS version", "SCM (Kudu) access from"],
             rows,
             had_errors["value"],
         )
