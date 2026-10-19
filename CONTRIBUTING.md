@@ -29,7 +29,9 @@ python SprayCan.py         # Canvas on http://127.0.0.1:8787
 ## Writing a droplet
 
 Start with the README's [Extensibility](README.md#extensibility--writing-your-own-droplet)
-section. It has the contract, a complete working example and the helper table. In short:
+section. It has the contract, a complete working example and the helper table. If you work with a
+coding agent, have it read [AGENTS.md](AGENTS.md) first: it's the same material condensed for agents,
+plus a template, an offline test harness and a PR checklist. In short:
 
 1. Add `Droplets/<your_scan>.py` with a `class Droplet` defining `droplet_name`, `droplet_type`,
    `droplet_description`, `__init__(self, droplet_path)` and `run(self)`.

@@ -18,7 +18,7 @@ terms of service.
 - The software is provided "as is", without warranty. See [LICENSE](LICENSE).
 
 Found a vulnerability in SprayCan itself? See [SECURITY.md](SECURITY.md). Want to add a scan? See
-[CONTRIBUTING.md](CONTRIBUTING.md).
+[CONTRIBUTING.md](CONTRIBUTING.md), or point your coding agent at [AGENTS.md](AGENTS.md).
 
 ## What It Does
 
@@ -555,6 +555,12 @@ Canvas runs entirely locally. It is not a deployed web app.
 
 ## Extensibility — writing your own droplet
 
+> **Using a coding agent?** [AGENTS.md](AGENTS.md) is a self-contained brief for AI coding agents
+> (Codex, Antigravity, Claude Code, Cursor, Copilot and others). It has the droplet contract, a
+> copy-paste template, the helper APIs, the Canvas conventions, an offline test harness and a PR
+> checklist, so an agent can build a working droplet without first exploring the whole codebase.
+> Many agents read `AGENTS.md` automatically. Otherwise, tell yours to read it first.
+
 Droplets are plain Python files, and adding one is deliberately low-effort: **drop a file into
 `Droplets/` and it shows up in Canvas and headless mode. No registration, no UI work, and no
 changes to the server or frontend are required.**
@@ -674,12 +680,14 @@ recommendation, confidence, and the `meta` block. A few conventions improve the 
 - **`severity`** must be one of `critical`, `high`, `medium`, `low`, `info` (used for colouring and
   filtering).
 - **`objects`** whose `type` isn't one Canvas already knows about appear under **Other Objects** as JSON.
-- **`evidence`** items are shown as raw JSON by default.
+- **`evidence`** items are shown as raw JSON by default. An item shaped
+  `{"type": "app_table", "columns": ["Name", ...], "rows": [{"Name": ...}, ...]}` is drawn as a table
+  with an **Export CSV** button instead (row keys match the column labels; cell values are scalars).
 - **Summary metrics:** put `meta["metrics"] = [{"category": ..., "total": N, "checks": [{"label": ...,
   "bad": n, "total": N}]}]` on a finding and Canvas renders the colour-coded metrics view instead of the
   description. Add `"info": True` to a check that isn't a problem, so it isn't coloured as bad.
-- **Downloads:** `meta["csv_paths"]` (paths relative to `output/`) adds CSV download buttons, and
-  `meta["paste_output"]` adds a collapsible copy-paste text block.
+- **Downloads:** alongside `meta["metrics"]`, `meta["csv_paths"]` (paths relative to `output/`) adds
+  CSV download links. `meta["paste_output"]` adds a collapsible copy-paste text block.
 
 ### When you do need UI work (optional)
 
@@ -688,9 +696,8 @@ Only for presentation beyond the defaults. Any frontend change means rebuilding 
 
 - **Custom evidence rendering:** add a branch to `renderEvidence()` in
   `frontend/src/components/FindingDetailPane.jsx`, keyed on your droplet's name
-  (`scan.includes("...")`). The existing branches are the templates. For example, the Front Door branch
-  renders `{"type": "app_table", "columns": [...], "rows": [...]}` evidence as a table with CSV export
-  with `renderAppTable()`, so reusing that evidence shape gets you a table with a few lines of code.
+  (`scan.includes("...")`). The existing branches are the templates; `renderKeyValueTable()` and
+  `renderAppTable()` are the building blocks. Plain tables don't need this: use `app_table` evidence.
 - **A scan-time option** (a checkbox on the Scans page shown only when your scan is queued, like the
   Front Door payload probe): add a getter/setter in `util/settings.py`, a GET/POST
   `/api/settings/<slug>` endpoint in `server/server.py` returning `{"enabled": bool}`, and an entry in
