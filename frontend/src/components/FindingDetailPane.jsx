@@ -488,9 +488,13 @@ function renderEvidence(finding) {
     ));
   }
 
+  // Any droplet: {"type": "app_table", "columns": [...], "rows": [{column: value}]} evidence
+  // renders as a table with CSV export; anything else is shown as raw JSON.
   return (finding.evidence || []).map((item, index) => (
     <div key={index} className="detail-item">
-      {renderKeyValueTable([["Raw", JSON.stringify(item)]])}
+      {item.type === "app_table"
+        ? renderAppTable(item.columns, item.rows, `${finding.title}_${index}`)
+        : renderKeyValueTable([["Raw", JSON.stringify(item)]])}
     </div>
   ));
 }
