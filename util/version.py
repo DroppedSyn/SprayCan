@@ -1,6 +1,6 @@
 # Single source of truth for the SprayCan version. Lives here (not in SprayCan.py) so droplets
 # can import it: importing SprayCan.py would trigger its venv re-exec.
-VERSION = "0.82"
+VERSION = "0.83"
 
 PROJECT_URL = "https://github.com/DroppedSyn/SprayCan"
 
