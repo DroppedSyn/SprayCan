@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import TopologyGraph from "./TopologyGraph.jsx";
 import ExportCsvButton from "./ExportCsvButton.jsx";
+import { describeNetworkNode } from "../lib/networkInfo.js";
 import {
   formatFactValue,
   formatRuleDestination,
@@ -34,6 +35,7 @@ const ROUTE_COLUMNS = [
 ];
 
 export default function TopologyDetailPane({
+  networkModel,
   selectedNetworkItem,
   networkSecurityGroups,
   networkRouteTables,
@@ -45,9 +47,6 @@ export default function TopologyDetailPane({
   scopedNetworkGraph,
   activeGraphNodeId,
   theme,
-  filteredNetworkInventory,
-  findNetworkInventoryKey,
-  setSelectedNetworkKey,
   pluralize,
 }) {
   const [activeTab, setActiveTab] = useState("details");
@@ -164,9 +163,9 @@ export default function TopologyDetailPane({
           <div className="network-graph-controls">
             <div className="network-view-bar vertical">
               {[
+                ["topology", "Topology"],
                 ["shape", "Shape"],
                 ["devices", "Devices"],
-                ["topology", "Topology"],
               ].map(([view, label]) => (
                 <button
                   key={view}
@@ -219,12 +218,7 @@ export default function TopologyDetailPane({
                   activeNodeId={activeGraphNodeId}
                   theme={theme}
                   focusKinds={networkFocus}
-                  onNodeSelect={(nodeId) => {
-                    const nextKey = findNetworkInventoryKey(filteredNetworkInventory, nodeId);
-                    if (nextKey) {
-                      setSelectedNetworkKey(nextKey);
-                    }
-                  }}
+                  describeNode={(nodeId, ref) => describeNetworkNode(networkModel, nodeId, ref)}
                 />
               </div>
             </div>

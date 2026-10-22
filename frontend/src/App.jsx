@@ -26,8 +26,7 @@ import {
 } from "./lib/findings.js";
 import {
   buildNetworkInventory,
-  buildScopedNetworkGraph,
-  findNetworkInventoryKey,
+  buildNetworkGraph,
   getNetworkSearchText,
   groupNetworkInventory,
   normalizeNetworkModel,
@@ -71,7 +70,7 @@ export default function App() {
     tokenType: null,
   });
   const [networkFocus, setNetworkFocus] = useState([]);
-  const [networkView, setNetworkView] = useState("shape");
+  const [networkView, setNetworkView] = useState("topology");
   const [expandedTopologyGroups, setExpandedTopologyGroups] = useState({});
 
   function getTenantDisplayName(tenantId) {
@@ -317,8 +316,8 @@ export default function App() {
   const selectedNetworkItem =
     filteredNetworkInventory.find((item) => item.key === selectedNetworkKey) || filteredNetworkInventory[0] || null;
   const scopedNetworkGraph = useMemo(
-    () => buildScopedNetworkGraph(networkModel, selectedNetworkItem, networkView),
-    [networkModel, selectedNetworkItem, networkView],
+    () => buildNetworkGraph(networkModel, networkView),
+    [networkModel, networkView],
   );
   const activeGraphNodeId =
     selectedNetworkItem?.data?.id || selectedNetworkItem?.data?.network_interface_id || selectedNetworkItem?.data?.name || "";
@@ -494,6 +493,7 @@ export default function App() {
               <section className="detail-pane">
                 {networkModel ? (
                   <TopologyDetailPane
+                    networkModel={networkModel}
                     selectedNetworkItem={selectedNetworkItem}
                     networkSecurityGroups={networkSecurityGroups}
                     networkRouteTables={networkRouteTables}
@@ -505,9 +505,6 @@ export default function App() {
                     scopedNetworkGraph={scopedNetworkGraph}
                     activeGraphNodeId={activeGraphNodeId}
                     theme={theme}
-                    filteredNetworkInventory={filteredNetworkInventory}
-                    findNetworkInventoryKey={findNetworkInventoryKey}
-                    setSelectedNetworkKey={setSelectedNetworkKey}
                     pluralize={pluralize}
                   />
                 ) : (

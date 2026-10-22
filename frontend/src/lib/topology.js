@@ -350,17 +350,25 @@ export function summarizeNetworkFocus(model) {
 }
 
 
+// Peered VNets that are part of the model are drawn as VNets. Only VNets outside it get a
+// "peering" placeholder; without this check a VNet peered from one processed earlier was
+// added as a placeholder first and its own VNet node was then skipped.
+function collectVnetIds(model) {
+  return new Set((model?.subscriptions || []).flatMap((subscription) => (subscription.virtual_networks || []).map((vnet) => vnet.id)));
+}
+
 function buildTopologyGraph(model) {
   const nodes = [];
   const edges = [];
   const seen = new Set();
   const seenEdges = new Set();
 
-  function addNode(id, label, tone, parent) {
+  function addNode(id, label, tone, parent, ref) {
     if (!id || seen.has(id)) return;
     seen.add(id);
     const node = { id, label, tone };
     if (parent) node.parent = parent;
+    if (ref) node.ref = ref;
     nodes.push(node);
   }
 
@@ -371,6 +379,8 @@ function buildTopologyGraph(model) {
     seenEdges.add(key);
     edges.push({ id: key, source, target });
   }
+
+  const vnetIds = collectVnetIds(model);
 
   // Build NSG id → name lookup from all subscriptions up front
   const nsgNameById = {};
@@ -416,21 +426,24 @@ function buildTopologyGraph(model) {
       for (const subnet of vnet.subnets || []) {
         if (!subnet.id) continue;
         const prefix = subnet.address_prefix || (subnet.address_prefixes || []).join(", ") || "";
-        addNode(subnet.id, prefix ? `${subnet.name}\n${prefix}` : subnet.name, "subnet", vnet.id);
 
-        // NSG badge inside the subnet compound node
-        if (subnet.network_security_group_id) {
-          const nsgName = nsgNameById[subnet.network_security_group_id]
-            || subnet.network_security_group_id.split("/").filter(Boolean).pop();
-          addNode(`${subnet.id}::nsg`, nsgName, "nsg", subnet.id);
+        // An NSG is drawn as a glass box wrapping the subnet it protects. One box per subnet
+        // (a node has a single parent); `ref` points every box back at the NSG resource.
+        let subnetParent = vnet.id;
+        const nsgId = subnet.network_security_group_id;
+        if (nsgId) {
+          const nsgName = nsgNameById[nsgId] || nsgId.split("/").filter(Boolean).pop();
+          subnetParent = `${subnet.id}::nsg`;
+          addNode(subnetParent, `NSG · ${nsgName}`, "nsg", vnet.id, nsgId);
         }
+        addNode(subnet.id, prefix ? `${subnet.name}\n${prefix}` : subnet.name, "subnet", subnetParent);
       }
 
       // Peering edges — add placeholder for cross-tenant remote VNets
       for (const peering of vnet.peerings || []) {
         const remoteId = peering.remote_virtual_network_id;
         if (!remoteId) continue;
-        if (!seen.has(remoteId)) {
+        if (!seen.has(remoteId) && !vnetIds.has(remoteId)) {
           const remoteName = remoteId.split("/").filter(Boolean).pop() || "remote";
           addNode(remoteId, remoteName, "peering");
         }
@@ -443,6 +456,7 @@ function buildTopologyGraph(model) {
 }
 
 function buildShapeGraph(model) {
+  const vnetIds = collectVnetIds(model);
   const nodes = [];
   const edges = [];
   const seen = new Set();
@@ -504,10 +518,12 @@ function buildShapeGraph(model) {
 
       for (const peering of vnet.peerings || []) {
         const remoteId = peering.remote_virtual_network_id || `${peering.id}:remote`;
-        const remoteLabel = peering.remote_virtual_network_id
-          ? peering.remote_virtual_network_id.split("/").filter(Boolean).pop()
-          : "remote vnet";
-        addNode(remoteId, "peering", remoteLabel, "peering");
+        if (!vnetIds.has(remoteId)) {
+          const remoteLabel = peering.remote_virtual_network_id
+            ? peering.remote_virtual_network_id.split("/").filter(Boolean).pop()
+            : "remote vnet";
+          addNode(remoteId, "peering", remoteLabel, "peering");
+        }
         addEdge(vnet.id, remoteId);
       }
     }
@@ -527,6 +543,7 @@ function buildShapeGraph(model) {
 }
 
 function buildDeviceExposureGraph(model) {
+  const vnetIds = collectVnetIds(model);
   const nodes = [];
   const edges = [];
   const seen = new Set();
@@ -587,10 +604,12 @@ function buildDeviceExposureGraph(model) {
 
       for (const peering of vnet.peerings || []) {
         const remoteId = peering.remote_virtual_network_id || `${peering.id}:remote`;
-        const remoteLabel = peering.remote_virtual_network_id
-          ? peering.remote_virtual_network_id.split("/").filter(Boolean).pop()
-          : "remote vnet";
-        addNode(remoteId, "peering", remoteLabel, "peering");
+        if (!vnetIds.has(remoteId)) {
+          const remoteLabel = peering.remote_virtual_network_id
+            ? peering.remote_virtual_network_id.split("/").filter(Boolean).pop()
+            : "remote vnet";
+          addNode(remoteId, "peering", remoteLabel, "peering");
+        }
         addEdge(vnet.id, remoteId);
       }
     }
@@ -603,225 +622,13 @@ function buildDeviceExposureGraph(model) {
   };
 }
 
-export function findNetworkContext(model, selectedItem) {
-  if (!model || !selectedItem) {
-    return {};
-  }
-
-  for (const subscription of model.subscriptions || []) {
-    if (selectedItem.kind === "subscription" && subscription.id === selectedItem.data.id) {
-      return { subscription };
-    }
-
-    for (const publicIp of subscription.public_ip_addresses || []) {
-      if (selectedItem.kind === "publicIp" && publicIp.id === selectedItem.data.id) {
-        return { subscription, publicIp };
-      }
-    }
-
-    for (const vnet of subscription.virtual_networks || []) {
-      if (selectedItem.kind === "vnet" && vnet.id === selectedItem.data.id) {
-        return { subscription, vnet };
-      }
-
-      for (const subnet of vnet.subnets || []) {
-        if (selectedItem.kind === "subnet" && subnet.id === selectedItem.data.id) {
-          return { subscription, vnet, subnet };
-        }
-
-        for (const device of subnet.connected_devices || []) {
-          const deviceId = device.id || device.network_interface_id || device.name;
-          if (selectedItem.kind === "device" && deviceId === (selectedItem.data.id || selectedItem.data.network_interface_id || selectedItem.data.name)) {
-            return { subscription, vnet, subnet, device };
-          }
-        }
-      }
-
-      for (const peering of vnet.peerings || []) {
-        if (selectedItem.kind === "peering" && peering.id === selectedItem.data.id) {
-          return { subscription, vnet, peering };
-        }
-      }
-    }
-  }
-
-  return {};
-}
-
-export function buildScopedNetworkGraph(model, selectedItem, view = "shape") {
+// The graph covers the whole model; `view` picks one of the three layouts.
+export function buildNetworkGraph(model, view = "topology") {
   if (view === "shape") {
     return buildShapeGraph(model);
   }
-
   if (view === "devices") {
     return buildDeviceExposureGraph(model);
   }
-
-  if (view === "topology") {
-    return buildTopologyGraph(model);
-  }
-
-  if (selectedItem?.kind === "general") {
-    const nodes = [];
-    const edges = [];
-    const seen = new Set();
-
-    function addNode(id, lane, label, tone) {
-      if (!id || seen.has(id)) {
-        return;
-      }
-      seen.add(id);
-      nodes.push({ id, lane, label, tone: tone || lane });
-    }
-
-    function addEdge(source, target) {
-      if (!source || !target) {
-        return;
-      }
-      edges.push({ source, target, id: `${source}:${target}` });
-    }
-
-    for (const subscription of model?.subscriptions || []) {
-      addNode(subscription.id, "subscription", subscription.name, "subscription");
-
-      for (const currentPublicIp of subscription.public_ip_addresses || []) {
-        addNode(currentPublicIp.id, "publicIp", currentPublicIp.name || currentPublicIp.ip_address || "public ip", "publicIp");
-        addEdge(subscription.id, currentPublicIp.id);
-      }
-
-      for (const vnet of subscription.virtual_networks || []) {
-        addNode(vnet.id, "vnet", vnet.name, "vnet");
-        addEdge(subscription.id, vnet.id);
-
-        for (const subnet of vnet.subnets || []) {
-          addNode(subnet.id, "subnet", subnet.name, "subnet");
-          addEdge(vnet.id, subnet.id);
-
-          for (const device of subnet.connected_devices || []) {
-            const deviceId = device.id || device.network_interface_id || `${subnet.id}:${device.name}`;
-            addNode(deviceId, "device", device.name || device.type || "device", "device");
-            addEdge(subnet.id, deviceId);
-            if (device.public_ip_id) {
-              addNode(
-                device.public_ip_id,
-                "publicIp",
-                device.public_ip_name || device.public_ip_address || "public ip",
-                "publicIp",
-              );
-              addEdge(deviceId, device.public_ip_id);
-            }
-          }
-        }
-
-        for (const peering of vnet.peerings || []) {
-          const remoteId = peering.remote_virtual_network_id || `${peering.id}:remote`;
-          const remoteLabel = peering.remote_virtual_network_id
-            ? peering.remote_virtual_network_id.split("/").filter(Boolean).pop()
-            : "remote vnet";
-          addNode(remoteId, "remote", remoteLabel, "peering");
-          addEdge(vnet.id, remoteId);
-        }
-      }
-    }
-
-    return {
-      title: "Topology",
-      nodes,
-      edges,
-    };
-  }
-
-  const context = findNetworkContext(model, selectedItem);
-  const nodes = [];
-  const edges = [];
-  const seen = new Set();
-
-  function addNode(id, lane, label, tone) {
-    if (!id || seen.has(id)) {
-      return;
-    }
-    seen.add(id);
-    nodes.push({ id, lane, label, tone: tone || lane });
-  }
-
-  function addEdge(source, target) {
-    if (!source || !target) {
-      return;
-    }
-    edges.push({ source, target, id: `${source}:${target}` });
-  }
-
-  const { subscription, vnet, subnet, device, peering, publicIp } = context;
-  if (!subscription) {
-    return { title: "Topology", nodes: [], edges: [] };
-  }
-
-  addNode(subscription.id, "subscription", subscription.name, "subscription");
-  for (const currentPublicIp of subscription.public_ip_addresses || []) {
-    if (publicIp && currentPublicIp.id !== publicIp.id) {
-      continue;
-    }
-    addNode(currentPublicIp.id, "publicIp", currentPublicIp.name || currentPublicIp.ip_address || "public ip", "publicIp");
-    addEdge(subscription.id, currentPublicIp.id);
-  }
-
-  const vnets = vnet ? [vnet] : subscription.virtual_networks || [];
-  for (const currentVnet of vnets) {
-    addNode(currentVnet.id, "vnet", currentVnet.name, "vnet");
-    addEdge(subscription.id, currentVnet.id);
-
-    const subnets = subnet ? [subnet] : currentVnet.subnets || [];
-    for (const currentSubnet of subnets) {
-      addNode(currentSubnet.id, "subnet", currentSubnet.name, "subnet");
-      addEdge(currentVnet.id, currentSubnet.id);
-
-      const devices = device ? [device] : currentSubnet.connected_devices || [];
-      for (const currentDevice of devices) {
-        const deviceId = currentDevice.id || currentDevice.network_interface_id || `${currentSubnet.id}:${currentDevice.name}`;
-        addNode(deviceId, "device", currentDevice.name || currentDevice.type || "device", "device");
-        addEdge(currentSubnet.id, deviceId);
-        if (currentDevice.public_ip_id) {
-          addNode(
-            currentDevice.public_ip_id,
-            "publicIp",
-            currentDevice.public_ip_name || currentDevice.public_ip_address || "public ip",
-            "publicIp",
-          );
-          addEdge(deviceId, currentDevice.public_ip_id);
-        }
-      }
-    }
-
-    for (const currentPeering of currentVnet.peerings || []) {
-      if (peering && currentPeering.id !== peering.id) {
-        continue;
-      }
-      const remoteId = currentPeering.remote_virtual_network_id || `${currentPeering.id}:remote`;
-      const remoteLabel = currentPeering.remote_virtual_network_id
-        ? currentPeering.remote_virtual_network_id.split("/").filter(Boolean).pop()
-        : "remote vnet";
-      addNode(remoteId, "remote", remoteLabel, "peering");
-      addEdge(currentVnet.id, remoteId);
-    }
-  }
-
-  return {
-    title: vnet ? `${subscription.name} / ${vnet.name}` : subscription.name,
-    nodes,
-    edges,
-  };
-}
-
-export function findNetworkInventoryKey(items, nodeId) {
-  const matching = items.find((item) => {
-    if (item.data?.id === nodeId) {
-      return true;
-    }
-    if (item.kind === "device") {
-      const deviceId = item.data?.id || item.data?.network_interface_id || item.data?.name;
-      return deviceId === nodeId;
-    }
-    return false;
-  });
-  return matching?.key || "";
+  return buildTopologyGraph(model);
 }
